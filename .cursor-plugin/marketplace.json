@@ -1,0 +1,13 @@
+{
+  "name": "clickup-rich-comments",
+  "owner": {
+    "name": "TaricaTarica"
+  },
+  "plugins": [
+    {
+      "name": "clickup-comment-style",
+      "source": "./plugin-cursor",
+      "description": "Upgrades ClickUp MCP comments from plain text to native rich formatting via an afterMCPExecution hook"
+    }
+  ]
+}

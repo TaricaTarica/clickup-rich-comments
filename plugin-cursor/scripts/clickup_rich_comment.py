@@ -1,0 +1,1 @@
+../../hooks/clickup_rich_comment.py

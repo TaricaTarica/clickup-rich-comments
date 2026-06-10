@@ -2,22 +2,168 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3](https://img.shields.io/badge/python-3-3776ab.svg)](hooks/clickup_rich_comment.py)
+[![GitHub stars](https://img.shields.io/github/stars/TaricaTarica/clickup-rich-comments?style=social)](https://github.com/TaricaTarica/clickup-rich-comments)
 
-**Transparent Markdown upgrade for the ClickUp MCP** — works with Cursor and Claude Code.
+**Make the ClickUp MCP render real Markdown — headers, bold, lists, and code blocks in every comment. Works with Claude Code and Cursor.**
 
-The ClickUp MCP (`clickup_create_task_comment`) only writes `comment_text` as plain text. Headers, bold, lists, and code blocks appear **literal** in the UI. This project adds a post-hook that upgrades each new comment to ClickUp's native rich-text format automatically — no workflow changes for you or your agent.
+<!-- TODO: record demo GIF — split-screen: left = comment with literal ## / backticks / bullets; right = same comment with native rich rendering. See assets/README.md -->
+![Demo](assets/demo.gif)
+
+The ClickUp MCP posts `comment_text` as plain text — so `##` headers, `**bold**`, and bullet lists show up **literal** in the UI. This project adds a post-hook that upgrades each new comment to ClickUp's native rich-text format automatically. No workflow changes for you or your agent.
 
 ## Quickstart
 
 ```bash
-git clone https://github.com/YOUR_USER/clickup-comment-style.git
-cd clickup-comment-style
+git clone https://github.com/TaricaTarica/clickup-rich-comments.git
+cd clickup-rich-comments
 ./install.sh
 ```
 
 The installer checks prerequisites, guides you through `CLICKUP_API_TOKEN` setup, and configures hooks for Cursor and Claude Code automatically. Takes about two minutes.
 
 **Requirements:** `python3`, `jq` (for hook wrappers). No pip packages.
+
+---
+
+## Install as a Cursor plugin (recommended for Cursor users)
+
+Install the hook and style guide in one step via the Cursor plugin marketplace:
+
+```
+/plugin marketplace add TaricaTarica/clickup-rich-comments
+```
+
+Then in a Cursor session:
+
+```
+/plugin install clickup-comment-style@clickup-rich-comments
+```
+
+Or use `/add-plugin` and search for `clickup-comment-style`.
+
+After install, restart Cursor or run **Developer: Reload Window**. Hook changes are not hot-reloaded; `SKILL.md` and rule updates may require a reload.
+
+**Requirements:** `python3`, `jq`, and `CLICKUP_API_TOKEN` in your environment (see [token setup](#step-by-step-get-your-clickup_api_token)). The plugin installs the mechanism only — it never embeds or ships credentials.
+
+**What you get:** an `afterMCPExecution` hook that upgrades `clickup_create_task_comment` output to native rich text, plus the comment style guide skill and rule.
+
+**ClickUp MCP:** must already be configured separately. This plugin does not declare `mcp.json` — adding ClickUp MCP again would conflict with your existing setup.
+
+**Avoid double hooks:** if you install via the plugin, do not also merge the hook into `~/.cursor/hooks.json` via `./install.sh` — you would run the upgrade twice per comment.
+
+**Marketplace source:** add the marketplace via Git shorthand (`owner/repo`) or a git URL. Do not add it via a direct URL to `marketplace.json` — relative plugin paths (`./plugin-cursor`) only resolve when the marketplace is fetched from a git repository.
+
+**Test locally before publishing:**
+
+```bash
+ln -sf "$(pwd)/plugin-cursor" ~/.cursor/plugins/local/clickup-comment-style
+# Developer: Reload Window → verify rules, skills, and hooks in Settings
+```
+
+If symlinks are missing after clone (common on Windows), run `./scripts/sync-plugins.sh`.
+
+---
+
+## Install as a Claude Code plugin (recommended for Claude Code users)
+
+For Claude Code, install the hook and style guide in one step via the plugin marketplace:
+
+```bash
+claude plugin marketplace add TaricaTarica/clickup-rich-comments
+```
+
+Then in a Claude Code session:
+
+```
+/plugin install clickup-comment-style@clickup-rich-comments
+```
+
+After install, restart the session or run `/reload-plugins`. Hook changes are not hot-reloaded; `SKILL.md` updates are.
+
+**Requirements:** `python3`, `jq`, and `CLICKUP_API_TOKEN` in your environment (see [token setup](#step-by-step-get-your-clickup_api_token)). The plugin installs the mechanism only — it never embeds or ships credentials.
+
+**What you get:** a `PostToolUse` hook that upgrades `clickup_create_task_comment` output to native rich text, plus the comment style guide skill.
+
+**ClickUp MCP:** must already be configured separately (OAuth). This plugin does not declare `.mcp.json` — adding ClickUp MCP again would conflict with your existing setup.
+
+**Avoid double hooks:** if you install via the plugin, do not also merge the hook into `~/.claude/settings.json` via `./install.sh` — you would run the upgrade twice per comment.
+
+**Marketplace source:** add the marketplace via Git shorthand (`owner/repo`) or a git URL. Do not add it via a direct URL to `marketplace.json` — relative plugin paths (`./plugin`) only resolve when the marketplace is fetched from a git repository.
+
+---
+
+## Manual setup / install.sh (universal fallback)
+
+`./install.sh` is the universal fallback when you prefer not to use a marketplace plugin, or when you want hooks in both Cursor and Claude Code from one script.
+
+### Cursor (manual)
+
+Merge into `~/.cursor/hooks.json` (see [`config-examples/cursor-hooks.json`](config-examples/cursor-hooks.json)):
+
+```json
+{
+  "version": 1,
+  "hooks": {
+    "afterMCPExecution": [
+      {
+        "command": "/ABSOLUTE/PATH/to/clickup-comment-style/hooks/cursor.sh"
+      }
+    ]
+  }
+}
+```
+
+```bash
+chmod +x hooks/*.sh scripts/*.sh
+```
+
+Restart Cursor or save `hooks.json` to reload hooks.
+
+### Claude Code (manual)
+
+`./install.sh` merges the hook into `~/.claude/settings.json` automatically (with confirmation). Matcher default: regex `mcp__.*__clickup_create_task_comment` — works across MCP server naming (e.g. `mcp__claude_ai_ClickUp__clickup_create_task_comment`) without manual configuration.
+
+Manual merge (see [`config-examples/claude-settings.json`](config-examples/claude-settings.json)):
+
+```bash
+python3 scripts/merge_claude_hooks.py ~/.claude/settings.json "$(pwd)/hooks/claude-code.sh"
+```
+
+Or merge JSON by hand:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "mcp__.*__clickup_create_task_comment",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/ABSOLUTE/PATH/to/clickup-comment-style/hooks/claude-code.sh",
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Restart your Claude Code session after install.
+
+---
+
+## What `comment_text` renders without the hook
+
+| In `comment_text` | Renders in ClickUp UI? |
+|-------------------|------------------------|
+| Inline code `` `identifier` `` | Yes |
+| Raw URL `https://...` | Yes (auto-link) |
+| `**bold**`, `*italic*`, `~~strike~~` | No — literal |
+| `[text](url)` | No — literal |
+| `##` headers, `-` bullets, `1.` lists | No — literal |
+| `>` blockquote, ` ``` ` fences | No — literal |
 
 ---
 
@@ -36,18 +182,40 @@ ClickUp UI shows full rich text (headers, bold, lists, code blocks)
 
 The MCP OAuth token is **not** accessible to local hooks. The upgrade uses a **Personal API Token** (`pk_...`) via `CLICKUP_API_TOKEN`.
 
-### What `comment_text` renders without the hook
+---
 
-| In `comment_text` | Renders in ClickUp UI? |
-|-------------------|------------------------|
-| Inline code `` `identifier` `` | Yes |
-| Raw URL `https://...` | Yes (auto-link) |
-| `**bold**`, `*italic*`, `~~strike~~` | No — literal |
-| `[text](url)` | No — literal |
-| `##` headers, `-` bullets, `1.` lists | No — literal |
-| `>` blockquote, ` ``` ` fences | No — literal |
+## Why this exists
 
-Native formatting lives in the `comment` field (Quill-delta ops array). The MCP does not expose it. See [ClickUp comment formatting](https://developer.clickup.com/docs/comment-formatting).
+The MCP only writes `comment_text` — a plain string with minimal inline rendering. Native formatting (headers, lists, code blocks) lives in the separate `comment` field as a Quill-delta ops array, which the MCP does not expose. This hook reads `comment_text` after the MCP call and rewrites the comment via the documented `PUT` endpoint. See [ClickUp comment formatting](https://developer.clickup.com/docs/comment-formatting).
+
+---
+
+## Claude Code vs Cursor
+
+| | Claude Code plugin | Cursor plugin |
+|---|-------------------|---------------|
+| Hook event | `PostToolUse` | `afterMCPExecution` |
+| Config file | `plugin/hooks/hooks.json` or `~/.claude/settings.json` | `plugin-cursor/hooks/hooks.json` or `~/.cursor/hooks.json` |
+| Matcher | Regex in config: `mcp__.*__clickup_create_task_comment` | None — `cursor.sh` filters `tool_name` internally |
+| `tool_name` | `mcp__<server>__clickup_create_task_comment` | `clickup_create_task_comment` (no MCP prefix) |
+| `tool_input` | JSON object | JSON string — unwrap with `jq 'fromjson'` |
+| Comment ID | `tool_response.comment_id` | `tool_output.comment_id` |
+| Async | Supported (`"async": true`) | Not documented (runs synchronously) |
+
+---
+
+## Security
+
+Hooks run **without a sandbox** — they execute with your user permissions, the same as any local shell script Cursor or Claude Code invokes.
+
+What the hook does:
+
+1. Reads the MCP tool payload from stdin (tool name, comment text, comment ID).
+2. If the tool is `clickup_create_task_comment` and the call succeeded, calls `clickup_rich_comment.py`.
+3. The Python script sends one `PUT` request to `https://api.clickup.com/api/v2/comment/{id}` using `CLICKUP_API_TOKEN` from your environment.
+4. On any error (missing token, missing `jq`, API failure), the hook logs to stderr and **exits 0** — your agent session is never blocked.
+
+The repo contains no credentials. Review [`hooks/cursor.sh`](hooks/cursor.sh), [`hooks/claude-code.sh`](hooks/claude-code.sh), and [`hooks/clickup_rich_comment.py`](hooks/clickup_rich_comment.py) before installing.
 
 ---
 
@@ -100,115 +268,6 @@ echo $CLICKUP_API_TOKEN
 
 ---
 
-## Install as a Claude Code plugin (recommended for Claude Code users)
-
-For Claude Code, install the hook and style guide in one step via the plugin marketplace:
-
-```bash
-claude plugin marketplace add TaricaTarica/clickup-rich-comments
-```
-
-Then in a Claude Code session:
-
-```
-/plugin install clickup-comment-style@clickup-rich-comments
-```
-
-After install, restart the session or run `/reload-plugins`. Hook changes are not hot-reloaded; `SKILL.md` updates are.
-
-**Requirements:** `python3`, `jq`, and `CLICKUP_API_TOKEN` in your environment (see above). The plugin installs the mechanism only — it never embeds or ships credentials.
-
-**What you get:** a `PostToolUse` hook that upgrades `clickup_create_task_comment` output to native rich text, plus the comment style guide skill.
-
-**ClickUp MCP:** must already be configured separately (OAuth). This plugin does not declare `.mcp.json` — adding ClickUp MCP again would conflict with your existing setup.
-
-**Cursor users:** Claude Code plugins are not consumed by Cursor. Use [`./install.sh`](#quickstart) or the [manual Cursor setup](#cursor) below.
-
-**Avoid double hooks:** if you install via the plugin, do not also merge the hook into `~/.claude/settings.json` via `./install.sh` — you would run the upgrade twice per comment.
-
-**Marketplace source:** add the marketplace via Git shorthand (`owner/repo`) or a git URL. Do not add it via a direct URL to `marketplace.json` — relative plugin paths (`./plugin`) only resolve when the marketplace is fetched from a git repository.
-
----
-
-## Manual setup (without install.sh)
-
-### Cursor
-
-Merge into `~/.cursor/hooks.json` (see [`config-examples/cursor-hooks.json`](config-examples/cursor-hooks.json)):
-
-```json
-{
-  "version": 1,
-  "hooks": {
-    "afterMCPExecution": [
-      {
-        "command": "/ABSOLUTE/PATH/to/clickup-comment-style/hooks/cursor.sh"
-      }
-    ]
-  }
-}
-```
-
-```bash
-chmod +x hooks/*.sh scripts/*.sh
-```
-
-| Field | Cursor |
-|-------|--------|
-| Event | `afterMCPExecution` |
-| Config | `~/.cursor/hooks.json` |
-| Matcher | No — `cursor.sh` filters `tool_name` internally |
-| `tool_name` | `clickup_create_task_comment` (no MCP prefix) |
-| `tool_input` | JSON string — unwrap with `jq 'fromjson'` |
-| Comment ID | `tool_output.comment_id` |
-| Async | Not documented (runs synchronously) |
-
-Restart Cursor or save `hooks.json` to reload hooks.
-
-### Claude Code
-
-`./install.sh` merges the hook into `~/.claude/settings.json` automatically (with confirmation). Matcher default: regex `mcp__.*__clickup_create_task_comment` — works across MCP server naming (e.g. `mcp__claude_ai_ClickUp__clickup_create_task_comment`) without manual configuration.
-
-Manual merge (see [`config-examples/claude-settings.json`](config-examples/claude-settings.json)):
-
-```bash
-python3 scripts/merge_claude_hooks.py ~/.claude/settings.json "$(pwd)/hooks/claude-code.sh"
-```
-
-Or merge JSON by hand:
-
-```json
-{
-  "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "mcp__.*__clickup_create_task_comment",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/ABSOLUTE/PATH/to/clickup-comment-style/hooks/claude-code.sh",
-            "async": true
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-Restart your Claude Code session after install.
-
-| Field | Claude Code |
-|-------|-------------|
-| Event | `PostToolUse` |
-| Config | `~/.claude/settings.json` |
-| Matcher | Regex `mcp__.*__clickup_create_task_comment` (no server name needed) |
-| `tool_input` | JSON object |
-| Comment ID | `tool_response.comment_id` |
-| Async | Supported (`"async": true`) |
-
----
-
 ## Verify it works
 
 ### Test the converter directly
@@ -243,7 +302,8 @@ The hooks work with any `comment_text` the agent writes. For consistently well-s
 
 | Environment | Install |
 |-------------|---------|
-| Claude Code (plugin) | Included when you [install the plugin](#install-as-a-claude-code-plugin-recommended-for-claude-code-users) |
+| Cursor (plugin) | Included when you [install the Cursor plugin](#install-as-a-cursor-plugin-recommended-for-cursor-users) |
+| Claude Code (plugin) | Included when you [install the Claude Code plugin](#install-as-a-claude-code-plugin-recommended-for-claude-code-users) |
 | Claude Code (manual) | `cp SKILL.md ~/.claude/skills/clickup-comment-style/SKILL.md` |
 | Claude.ai | Upload folder as personal skill (Settings → Capabilities → Skills) |
 | Cursor (project) | `cp .cursor/rules/clickup-comment-style.mdc your-project/.cursor/rules/` |
@@ -263,6 +323,7 @@ The style guide teaches a plain-text dialect (bullets `•`, dividers, backticks
 | Comment still plain after hook | Check Hooks output channel; verify `comment_id` in hook payload |
 | Claude Code hook not firing | Re-run `python3 scripts/merge_claude_hooks.py ~/.claude/settings.json "$(pwd)/hooks/claude-code.sh"` and restart session |
 | Cursor adds latency | Hooks run synchronously; large comments may slow the agent turn slightly |
+| Plugin symlinks missing | Run `./scripts/sync-plugins.sh` after clone |
 
 ### Discover the MCP tool name (optional)
 
@@ -278,18 +339,29 @@ The default regex matcher `mcp__.*__clickup_create_task_comment` usually works w
 ```
 ├── .claude-plugin/
 │   └── marketplace.json              # Claude Code marketplace catalog
+├── .cursor-plugin/
+│   └── marketplace.json              # Cursor marketplace catalog
 ├── plugin/                           # installable Claude Code plugin
 │   ├── .claude-plugin/plugin.json
 │   ├── hooks/hooks.json
 │   ├── scripts/claude-code.sh
 │   ├── scripts/clickup_rich_comment.py  → symlink to hooks/
 │   └── SKILL.md                      → symlink to repo root
-├── install.sh                        # interactive setup (start here)
+├── plugin-cursor/                    # installable Cursor plugin
+│   ├── .cursor-plugin/plugin.json
+│   ├── hooks/hooks.json
+│   ├── scripts/cursor.sh             → symlink to hooks/
+│   ├── scripts/clickup_rich_comment.py  → symlink to hooks/
+│   ├── skills/clickup-comment-style/SKILL.md  → symlink to repo root
+│   └── rules/clickup-comment-style.mdc  → symlink to ../../.cursor/rules/
+├── install.sh                        # interactive setup (universal fallback)
 ├── README.md
 ├── LICENSE
 ├── .env.example
+├── assets/
+│   └── README.md                     # demo GIF recording spec
 ├── hooks/
-│   ├── clickup_rich_comment.py       # text → ops + PUT
+│   ├── clickup_rich_comment.py       # text → ops + PUT (source of truth)
 │   ├── claude-code.sh
 │   └── cursor.sh
 ├── config-examples/
@@ -297,7 +369,8 @@ The default regex matcher `mcp__.*__clickup_create_task_comment` usually works w
 │   └── cursor-hooks.json
 ├── scripts/
 │   ├── merge_claude_hooks.py
-│   └── detect-mcp-tool-name.sh
+│   ├── detect-mcp-tool-name.sh
+│   └── sync-plugins.sh               # provision plugin symlinks
 ├── SKILL.md                          # optional agent style guide
 ├── .cursor/rules/clickup-comment-style.mdc
 └── CONTRIBUTING.md

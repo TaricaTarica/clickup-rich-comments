@@ -1,0 +1,1 @@
+../../hooks/cursor.sh

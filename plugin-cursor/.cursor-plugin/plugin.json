@@ -1,0 +1,12 @@
+{
+  "name": "clickup-comment-style",
+  "version": "1.0.0",
+  "description": "Upgrades ClickUp MCP comments from plain text to native rich formatting via an afterMCPExecution hook",
+  "author": {
+    "name": "TaricaTarica"
+  },
+  "homepage": "https://github.com/TaricaTarica/clickup-rich-comments",
+  "repository": "https://github.com/TaricaTarica/clickup-rich-comments",
+  "license": "MIT",
+  "hooks": "./hooks/hooks.json"
+}
