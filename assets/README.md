@@ -4,7 +4,7 @@ The main README references `assets/demo.gif` as a before/after demo. Record and 
 
 ## Layout
 
-Split-screen, side by side:
+Split-screen, side by side — real ClickUp UI captures (not mockups):
 
 | Panel | Content |
 |-------|---------|
@@ -16,10 +16,11 @@ Split-screen, side by side:
 - Use the same ClickUp task and the same agent comment text on both sides.
 - Left: post via MCP with the hook disabled (or before install).
 - Right: post via MCP with the plugin/hook enabled.
-- Keep duration under 10 seconds; loop-friendly.
-- Recommended size: 1200×600 px (2:1) or 1280×720.
+- Target duration: **6 seconds**; loop-friendly.
+- Aspect ratio: **9:16** (vertical) or **16:9** (horizontal) — pick whichever fits your capture setup.
+- Optional burned-in labels (e.g. "Without hook" / "With hook") to make the contrast obvious at a glance.
 - Capture the ClickUp comment card UI, not the IDE — the contrast should be obvious at a glance.
 
 ## File
 
-Save as `assets/demo.gif` and remove the `<!-- TODO: record demo GIF -->` comment from the root README once committed.
+Save as `assets/demo.gif` and remove the `<!-- TODO: record assets/demo.gif -->` comment from the root README once committed.

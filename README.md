@@ -1,15 +1,51 @@
-# clickup-comment-style
+# clickup-rich-comments
+
+**Your ClickUp MCP posts `## broken` comments. This fixes them.**
+Auto-upgrades every agent comment to native rich text — headers, bold, lists, code.
+Works with Claude Code and Cursor.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3](https://img.shields.io/badge/python-3-3776ab.svg)](hooks/clickup_rich_comment.py)
 [![GitHub stars](https://img.shields.io/github/stars/TaricaTarica/clickup-rich-comments?style=social)](https://github.com/TaricaTarica/clickup-rich-comments)
 
-**Make the ClickUp MCP render real Markdown — headers, bold, lists, and code blocks in every comment. Works with Claude Code and Cursor.**
+<!-- Once there's traction, add a "Used by / Featured in" or a short testimonial here. -->
 
-<!-- TODO: record demo GIF — split-screen: left = comment with literal ## / backticks / bullets; right = same comment with native rich rendering. See assets/README.md -->
-![Demo](assets/demo.gif)
+This repo ships a post-hook plus an optional skill/plugin named `clickup-comment-style` (the install id in `/plugin install ...`).
 
-The ClickUp MCP posts `comment_text` as plain text — so `##` headers, `**bold**`, and bullet lists show up **literal** in the UI. This project adds a post-hook that upgrades each new comment to ClickUp's native rich-text format automatically. No workflow changes for you or your agent.
+<!-- TODO: record assets/demo.gif — 6s split-screen: LEFT = comment with literal ## / **bold** /
+backticks, RIGHT = same comment rendered as native headers/bold/lists. See assets/README.md -->
+![Before and after: ClickUp comment with literal ## and backticks on the left, rendered native rich text on the right](assets/demo.gif)
+
+## The problem
+
+Your agent writes a nicely formatted comment:
+
+```
+## Deploy steps
+1. Run `migrate`
+2. Restart the worker
+```
+
+ClickUp shows your team this — raw, unrendered:
+
+```
+## Deploy steps
+1. Run `migrate`
+2. Restart the worker
+```
+
+Same text. The `##` and `1.` never render: the MCP only writes plain `comment_text`, and ClickUp doesn't parse Markdown there.
+
+## What renders / what doesn't
+
+| In `comment_text` | Renders in ClickUp UI? |
+|-------------------|------------------------|
+| Inline code `` `identifier` `` | Yes |
+| Raw URL `https://...` | Yes (auto-link) |
+| `**bold**`, `*italic*`, `~~strike~~` | No — literal |
+| `[text](url)` | No — literal |
+| `##` headers, `-` bullets, `1.` lists | No — literal |
+| `>` blockquote, ` ``` ` fences | No — literal |
 
 ## Quickstart
 
@@ -23,9 +59,15 @@ The installer checks prerequisites, guides you through `CLICKUP_API_TOKEN` setup
 
 **Requirements:** `python3`, `jq` (for hook wrappers). No pip packages.
 
----
+## Install
 
-## Install as a Cursor plugin (recommended for Cursor users)
+> ⚠️ **Pick one install method.** If you install a plugin, don't also run `./install.sh`
+> (or merge hooks manually) — you'd run the upgrade twice per comment.
+
+<details>
+<summary><b>Install as a Cursor plugin</b> — recommended for Cursor users</summary>
+
+<span id="install-as-a-cursor-plugin-recommended-for-cursor-users"></span>
 
 Install the hook and style guide in one step via the Cursor plugin marketplace:
 
@@ -49,8 +91,6 @@ After install, restart Cursor or run **Developer: Reload Window**. Hook changes 
 
 **ClickUp MCP:** must already be configured separately. This plugin does not declare `mcp.json` — adding ClickUp MCP again would conflict with your existing setup.
 
-**Avoid double hooks:** if you install via the plugin, do not also merge the hook into `~/.cursor/hooks.json` via `./install.sh` — you would run the upgrade twice per comment.
-
 **Marketplace source:** add the marketplace via Git shorthand (`owner/repo`) or a git URL. Do not add it via a direct URL to `marketplace.json` — relative plugin paths (`./plugin-cursor`) only resolve when the marketplace is fetched from a git repository.
 
 **Test locally before publishing:**
@@ -62,9 +102,12 @@ ln -sf "$(pwd)/plugin-cursor" ~/.cursor/plugins/local/clickup-comment-style
 
 If symlinks are missing after clone (common on Windows), run `./scripts/sync-plugins.sh`.
 
----
+</details>
 
-## Install as a Claude Code plugin (recommended for Claude Code users)
+<details>
+<summary><b>Install as a Claude Code plugin</b> — recommended for Claude Code users</summary>
+
+<span id="install-as-a-claude-code-plugin-recommended-for-claude-code-users"></span>
 
 For Claude Code, install the hook and style guide in one step via the plugin marketplace:
 
@@ -86,13 +129,12 @@ After install, restart the session or run `/reload-plugins`. Hook changes are no
 
 **ClickUp MCP:** must already be configured separately (OAuth). This plugin does not declare `.mcp.json` — adding ClickUp MCP again would conflict with your existing setup.
 
-**Avoid double hooks:** if you install via the plugin, do not also merge the hook into `~/.claude/settings.json` via `./install.sh` — you would run the upgrade twice per comment.
-
 **Marketplace source:** add the marketplace via Git shorthand (`owner/repo`) or a git URL. Do not add it via a direct URL to `marketplace.json` — relative plugin paths (`./plugin`) only resolve when the marketplace is fetched from a git repository.
 
----
+</details>
 
-## Manual setup / install.sh (universal fallback)
+<details>
+<summary><b>Manual / install.sh</b> — universal fallback</summary>
 
 `./install.sh` is the universal fallback when you prefer not to use a marketplace plugin, or when you want hooks in both Cursor and Claude Code from one script.
 
@@ -152,20 +194,7 @@ Or merge JSON by hand:
 
 Restart your Claude Code session after install.
 
----
-
-## What `comment_text` renders without the hook
-
-| In `comment_text` | Renders in ClickUp UI? |
-|-------------------|------------------------|
-| Inline code `` `identifier` `` | Yes |
-| Raw URL `https://...` | Yes (auto-link) |
-| `**bold**`, `*italic*`, `~~strike~~` | No — literal |
-| `[text](url)` | No — literal |
-| `##` headers, `-` bullets, `1.` lists | No — literal |
-| `>` blockquote, ` ``` ` fences | No — literal |
-
----
+</details>
 
 ## How it works
 
@@ -182,13 +211,13 @@ ClickUp UI shows full rich text (headers, bold, lists, code blocks)
 
 The MCP OAuth token is **not** accessible to local hooks. The upgrade uses a **Personal API Token** (`pk_...`) via `CLICKUP_API_TOKEN`.
 
----
-
 ## Why this exists
 
 The MCP only writes `comment_text` — a plain string with minimal inline rendering. Native formatting (headers, lists, code blocks) lives in the separate `comment` field as a Quill-delta ops array, which the MCP does not expose. This hook reads `comment_text` after the MCP call and rewrites the comment via the documented `PUT` endpoint. See [ClickUp comment formatting](https://developer.clickup.com/docs/comment-formatting).
 
 ---
+
+## Reference
 
 ## Claude Code vs Cursor
 
@@ -202,8 +231,6 @@ The MCP only writes `comment_text` — a plain string with minimal inline render
 | Comment ID | `tool_response.comment_id` | `tool_output.comment_id` |
 | Async | Supported (`"async": true`) | Not documented (runs synchronously) |
 
----
-
 ## Security
 
 Hooks run **without a sandbox** — they execute with your user permissions, the same as any local shell script Cursor or Claude Code invokes.
@@ -216,8 +243,6 @@ What the hook does:
 4. On any error (missing token, missing `jq`, API failure), the hook logs to stderr and **exits 0** — your agent session is never blocked.
 
 The repo contains no credentials. Review [`hooks/cursor.sh`](hooks/cursor.sh), [`hooks/claude-code.sh`](hooks/claude-code.sh), and [`hooks/clickup_rich_comment.py`](hooks/clickup_rich_comment.py) before installing.
-
----
 
 ## Step-by-step: get your CLICKUP_API_TOKEN
 
@@ -266,8 +291,6 @@ echo $CLICKUP_API_TOKEN
 
 > Never commit your token. Use environment variables or your shell profile — not a `.env` file in a repo.
 
----
-
 ## Verify it works
 
 ### Test the converter directly
@@ -294,9 +317,8 @@ Open the task in ClickUp — the comment should show a header, bullet list, inli
 
 If formatting is still plain, check the Hooks output channel in Cursor or hook stderr logs.
 
----
-
-## Optional: agent style guide
+<details>
+<summary><b>Optional: agent style guide</b> — teaches agents a comment dialect that converts cleanly with the hook</summary>
 
 The hooks work with any `comment_text` the agent writes. For consistently well-structured technical comments, install the optional style guide:
 
@@ -311,7 +333,7 @@ The hooks work with any `comment_text` the agent writes. For consistently well-s
 
 The style guide teaches a plain-text dialect (bullets `•`, dividers, backticks, raw URLs) that reads well without the hook and converts cleanly with it. See [`SKILL.md`](SKILL.md).
 
----
+</details>
 
 ## Troubleshooting
 
@@ -325,14 +347,12 @@ The style guide teaches a plain-text dialect (bullets `•`, dividers, backticks
 | Cursor adds latency | Hooks run synchronously; large comments may slow the agent turn slightly |
 | Plugin symlinks missing | Run `./scripts/sync-plugins.sh` after clone |
 
-### Discover the MCP tool name (optional)
+## Discover the MCP tool name (optional)
 
 The default regex matcher `mcp__.*__clickup_create_task_comment` usually works without discovery. If you need an exact matcher:
 
 1. `python3 scripts/merge_claude_hooks.py --suggest-matcher` — hints from local MCP config or debug log.
 2. Or temporarily point Cursor `afterMCPExecution` to `scripts/detect-mcp-tool-name.sh`, post a test comment, read `~/.cursor/clickup-mcp-debug.log`.
-
----
 
 ## Repository layout
 
