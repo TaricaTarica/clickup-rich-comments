@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "hooks": {
+    "afterMCPExecution": [
+      {
+        "command": "/ABSOLUTE/PATH/to/clickup-comment-style/hooks/cursor.sh"
+      }
+    ]
+  }
+}

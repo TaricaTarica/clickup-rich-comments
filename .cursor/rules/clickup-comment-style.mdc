@@ -1,0 +1,164 @@
+---
+description: >-
+  Format ClickUp task comments in a consistent technical style (tone, detail, structure).
+  Use ALWAYS when creating or editing ClickUp comments via MCP (clickup_create_task_comment
+  / clickup_update_*), even if the user does not mention style or formatting. KEY (verified
+  live): comment_text only renders inline code (backticks) and raw URLs (auto-link). Everything
+  else (## headers, **bold**, *italic*, - bullets, > quotes, fences) appears LITERAL. Use
+  backticks + raw URLs for what renders, plain-text structure for everything else.
+globs:
+alwaysApply: false
+---
+
+# ClickUp Comment Style
+
+Apply this guide before any `clickup_create_task_comment` or comment edit via MCP. If the user
+passes raw content, expand it to this style. Do not invent technical data: if a commit / doc URL /
+example ID is missing, ask or leave an explicit placeholder.
+
+## What comment_text renders (verified live)
+
+Renders (use):
+- Inline code with backticks: `get_customer_orders` → displays as code.
+- Raw URL: https://... → auto-linked.
+
+Does NOT render — appears LITERAL:
+- `**bold**`, `*italic*`, `~~strike~~`, `[text](url)`
+- `##`/`###` headers, `-`/`*` bullets, `1.` lists, `>` blockquote, fences
+
+Native formatting (headers/bold/code-block) lives in the `comment` ops array, which the MCP
+does not expose. With the optional rich-text hook installed, keep writing the same plain-text
+dialect below — the hook upgrades it automatically. Do not switch to `##` or `**bold**`.
+
+## Governing principle
+
+Technical claim → evidence. Nearly every claim needs a source: `ref:` (official doc),
+`commit ref:` (commit), or raw URL of a record/example.
+
+## Content
+
+- **Voice:** first person, active, direct and factual. No greetings, filler, or closings.
+- **Peer-to-peer technical:** assume domain knowledge. Explain non-obvious decisions, not basics.
+- **Honesty:** document limits, assumptions, and known risks explicitly.
+- **Language (mirror context):** English for client/international; Spanish for internal. Match the thread.
+- **High detail:** what + how + why, with concrete examples (payloads, IDs, URLs) and the change commit.
+
+## Format
+
+What renders (use):
+- Identifiers ALWAYS in backticks: functions `getOptions(productId)`, fields `custbody_acme_synced`,
+  records `customrecord_acme_config`, files `client.py`, HTTP verbs `POST`, enums `PACKAGE_DELIVERED`.
+- Links: raw URL always. Never `[text](url)` (renders literal).
+
+Plain-text structure (the rest does not render):
+- Titles: own line, Title Case. Major sections between `────────────────────────────────────────`.
+  Numbered: `1. Title`.
+- Emphasis/warnings: UPPERCASE (`IMPORTANTE`, `MUST`). NOT `**bold**` (renders literal).
+- Labels: own line ending with `:` (`Notas:`, `Approach:`, `Endpoint:`).
+- Bullets: `• ` (indent 2). Sub-bullets: `– ` (en dash, indent 4–6).
+- Steps: `1.` `2.` `3.` at line start.
+- Multi-line snippets: indent 4 spaces per line. NO fences.
+- Flows: arrows `→`.
+- Refs: own line `ref:` / `commit ref:` / `Doc:` + raw URL.
+- Direct someone: tool `assignee` parameter (not `@inline` — does not resolve via API).
+
+## Templates by type
+
+- **A. Work report:** title per component → bullets `•` with `function()` in backticks → `ref:`/`commit ref:` URL.
+- **B. Feature/behavior:** divider/numbering → bullets `•` with identifiers → `Notas:` / `IMPORTANTE`.
+- **C. API spec:** `Endpoint:` / `Method:` (`POST` in backticks) / `Body:` / `Response:` → indent 4 spaces → realistic example.
+- **D. Multi-part plan:** intro → `1. 2. 3.` → owner per step (`-- ALICE`).
+- **E. Decision/PoC:** conclusion first → divider → numbered approaches with `Approach:`/`Results:` → `Doc:` URL.
+- **F. Quoted content:** clear prefix + indent 4 spaces (not `>`).
+
+## Few-shots
+
+### A — Work report
+```
+Catalog Service
+I added three endpoint calls to the acme-connector catalog REST API.
+
+• `getOptions(productId)` — pulls all product options based on the product ID.
+  ref: https://developer.example.com/docs/rest-catalog/product-variant-options/values
+• `createVariant(productId, variantData)` — creates a variant and assigns it to a product.
+  ref: https://developer.example.com/docs/rest-catalog/product-variants
+
+commit ref: https://github.com/acme-org/acme-connector/commit/abc123def456
+```
+
+### B — Feature / behavior documentation
+```
+────────────────────────────────────────
+1. Order creation, update and cancel
+────────────────────────────────────────
+• Added UserEvent script that runs when a Sales Order is created or edited in the ERP.
+• Orders created in the platform have the body field `custbody_acme_synced` marked.
+
+Notas:
+• Item maintenance is the client's responsibility (the API offers no method to add items).
+
+IMPORTANTE
+We cannot have more than one config record (`customrecord_acme_config`) per account.
+```
+
+### C — API / endpoint spec
+```
+I created an endpoint for test order creation via a hosted scriptlet.
+
+Endpoint: https://api.example.com/v1/orders/create
+Method:   `POST`
+
+Body:
+    {
+      lineItems: [
+        { sku: string, quantity: number, isPrime: boolean }
+      ]
+    }
+
+Response example:
+    { "status": 201, "id": "ORG-123", "orderUrl": "https://app.example.com/orders/ORG-123" }
+```
+
+### D — Multi-part plan
+```
+Moving to the production account plan
+I propose the following approach, disturbing their operation as little as possible.
+
+1. Deploy the integration and leave all scripts deactivated.            -- ALICE
+2. Migrate items from the ERP to the external platform.                 -- BOB
+3. Test orders MUST have at least one already-migrated item.            -- ALICE OR BOB
+```
+
+### E — Decision / research (PoC)
+```
+Final Conclusion: Based on Proof of Concepts
+The best way to handle real-time events without freezing the ERP UI is a middleware
+acting as a bridge between the edited-record context and the REST endpoint.
+
+Record update → middleware → response to ERP → async to REST handler → notification service
+
+────────────────────────────────────────
+1. Execute REST handler on UserEvent afterSubmit asynchronously
+────────────────────────────────────────
+Approach: call the handler from afterSubmit via `https.request(...)` and `.promise(...)`.
+Results: the UI froze 'loading' for the full 60s wait, then finished. Async did not help.
+Doc: do not run a UE script from another UE; extract the shared code into a module.
+```
+
+### F — Quoted content
+```
+Feedback from client:
+    Please change the shipping method code. Instead of "dhl_acme_standard"
+    use: dhl_acme_business.
+```
+
+## Checklist before posting
+
+1. Only backticks and raw URLs as markdown? (NO `##`, `**`, `*`, `~~`, `[]()`, `-`, `>`, fences)
+2. Identifiers in backticks?
+3. First person, direct, no filler?
+4. Correct language for the thread audience?
+5. Each technical claim with `ref:` / `commit ref:` / raw URL?
+6. Plain-text structure: divider/numbering, bullets `•`, snippets indented 4 spaces, flows `→`?
+7. Emphasis via UPPERCASE (not `**bold**`)?
+8. If directed at someone, used `assignee` (not `@inline`)?

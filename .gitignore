@@ -1,0 +1,15 @@
+# Local env files (never commit tokens)
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Debug logs from detect-mcp-tool-name.sh
+*.log
+
+# OS
+.DS_Store
