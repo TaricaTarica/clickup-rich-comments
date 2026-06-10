@@ -100,6 +100,36 @@ echo $CLICKUP_API_TOKEN
 
 ---
 
+## Install as a Claude Code plugin (recommended for Claude Code users)
+
+For Claude Code, install the hook and style guide in one step via the plugin marketplace:
+
+```bash
+claude plugin marketplace add TaricaTarica/clickup-rich-comments
+```
+
+Then in a Claude Code session:
+
+```
+/plugin install clickup-comment-style@clickup-rich-comments
+```
+
+After install, restart the session or run `/reload-plugins`. Hook changes are not hot-reloaded; `SKILL.md` updates are.
+
+**Requirements:** `python3`, `jq`, and `CLICKUP_API_TOKEN` in your environment (see above). The plugin installs the mechanism only — it never embeds or ships credentials.
+
+**What you get:** a `PostToolUse` hook that upgrades `clickup_create_task_comment` output to native rich text, plus the comment style guide skill.
+
+**ClickUp MCP:** must already be configured separately (OAuth). This plugin does not declare `.mcp.json` — adding ClickUp MCP again would conflict with your existing setup.
+
+**Cursor users:** Claude Code plugins are not consumed by Cursor. Use [`./install.sh`](#quickstart) or the [manual Cursor setup](#cursor) below.
+
+**Avoid double hooks:** if you install via the plugin, do not also merge the hook into `~/.claude/settings.json` via `./install.sh` — you would run the upgrade twice per comment.
+
+**Marketplace source:** add the marketplace via Git shorthand (`owner/repo`) or a git URL. Do not add it via a direct URL to `marketplace.json` — relative plugin paths (`./plugin`) only resolve when the marketplace is fetched from a git repository.
+
+---
+
 ## Manual setup (without install.sh)
 
 ### Cursor
@@ -213,7 +243,8 @@ The hooks work with any `comment_text` the agent writes. For consistently well-s
 
 | Environment | Install |
 |-------------|---------|
-| Claude Code | `cp SKILL.md ~/.claude/skills/clickup-comment-style/SKILL.md` |
+| Claude Code (plugin) | Included when you [install the plugin](#install-as-a-claude-code-plugin-recommended-for-claude-code-users) |
+| Claude Code (manual) | `cp SKILL.md ~/.claude/skills/clickup-comment-style/SKILL.md` |
 | Claude.ai | Upload folder as personal skill (Settings → Capabilities → Skills) |
 | Cursor (project) | `cp .cursor/rules/clickup-comment-style.mdc your-project/.cursor/rules/` |
 | Cursor (user) | `cp .cursor/rules/clickup-comment-style.mdc ~/.cursor/rules/` |
@@ -245,6 +276,14 @@ The default regex matcher `mcp__.*__clickup_create_task_comment` usually works w
 ## Repository layout
 
 ```
+├── .claude-plugin/
+│   └── marketplace.json              # Claude Code marketplace catalog
+├── plugin/                           # installable Claude Code plugin
+│   ├── .claude-plugin/plugin.json
+│   ├── hooks/hooks.json
+│   ├── scripts/claude-code.sh
+│   ├── scripts/clickup_rich_comment.py  → symlink to hooks/
+│   └── SKILL.md                      → symlink to repo root
 ├── install.sh                        # interactive setup (start here)
 ├── README.md
 ├── LICENSE

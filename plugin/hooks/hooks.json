@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "mcp__.*__clickup_create_task_comment",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/claude-code.sh",
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}
