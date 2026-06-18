@@ -30,6 +30,11 @@ Native formatting (headers/bold/code-block) lives in the `comment` ops array, wh
 does not expose. With the optional rich-text hook installed, keep writing the same plain-text
 dialect below — the hook upgrades it automatically. Do not switch to `##` or `**bold**`.
 
+Section titles + the hook: a title wrapped in box dividers (divider / title / divider)
+collapses into a single native header and the divider lines are dropped — they are only the
+title signal, never rendered as separator rules. Always pair a divider with a title beneath
+it; a lone divider produces nothing. A leading number (`1.`) stays in the header text.
+
 ## Governing principle
 
 Technical claim → evidence. Nearly every claim needs a source: `ref:` (official doc),
@@ -51,8 +56,9 @@ What renders (use):
 - Links: raw URL always. Never `[text](url)` (renders literal).
 
 Plain-text structure (the rest does not render):
-- Titles: own line, Title Case. Major sections between `────────────────────────────────────────`.
-  Numbered: `1. Title`.
+- Titles: own line, Title Case, wrapped (divider / title / divider) between
+  `────────────────────────────────────────`. Numbered: `1. Title`. The hook collapses the
+  block to one header and drops the dividers — never leave a divider without a title beneath it.
 - Emphasis/warnings: UPPERCASE (`IMPORTANTE`, `MUST`). NOT `**bold**` (renders literal).
 - Labels: own line ending with `:` (`Notas:`, `Approach:`, `Endpoint:`).
 - Bullets: `• ` (indent 2). Sub-bullets: `– ` (en dash, indent 4–6).

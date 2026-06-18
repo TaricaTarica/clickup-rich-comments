@@ -39,6 +39,22 @@ the **same plain-text dialect** described below. Do not switch to `##` or `**bol
 agent — the hook preprocesses this dialect and upgrades the comment to native rich text via
 `PUT /api/v2/comment/{comment_id}`. Without the hook, plain-text alone must still read well.
 
+How the hook treats section titles: a title wrapped in box dividers becomes a native
+header, and the divider lines themselves are dropped (they are only the section-title
+signal, never rendered as rules). So write the title with a divider above (and, by
+convention, below):
+
+```
+────────────────────────────────────────
+1. Visual Image Audit
+────────────────────────────────────────
+```
+
+→ renders as a single bold header `1. Visual Image Audit` with NO separator lines around
+it. Do not put a lone divider on its own (with no title beneath); a standalone divider is
+dropped and produces nothing. Keep any leading number (`1.`) in the title — it is preserved
+in the header.
+
 ---
 
 ## Content (tone, language, detail)
@@ -72,8 +88,10 @@ What renders (use):
 - Links: raw URL always (auto-links). Never `[text](url)` (renders literal).
 
 Structure and emphasis (plain-text, because the rest does not render):
-- Section titles: own line, Title Case. Major sections between 40-character box dividers:
-  `────────────────────────────────────────`. Numbered: `1. Title`.
+- Section titles: own line, Title Case, wrapped between 40-character box dividers
+  (divider / title / divider): `────────────────────────────────────────`. Numbered: `1. Title`.
+  With the hook, this whole block collapses to one header and the dividers disappear — so
+  never leave a divider without a title beneath it.
 - Strong emphasis / warnings: UPPERCASE (`IMPORTANTE`, `OBSOLETO`, `MUST`). Do NOT use
   `**bold**` — it renders literal.
 - Labels/subtitles: own line ending with `:` (`Notas:`, `Approach:`, `Results:`, `Endpoint:`).

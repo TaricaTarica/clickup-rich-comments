@@ -156,8 +156,8 @@ def preprocess_plain_text(text: str) -> str:
     that our block parser understands.
 
     Mappings:
-      • 40+ box dividers (─ or -)     → thematic break (---)
-      • Title between dividers         → ## header (level 2)
+      • divider / title [/ divider]    → ## header (level 2); dividers dropped
+      • standalone 40+ box divider     → dropped (renders as a stray rule)
       • • bullet                       → - markdown bullet
       • – sub-bullet with indent       → nested - bullet
       • 4-space indented blocks        → fenced code block
@@ -172,22 +172,28 @@ def preprocess_plain_text(text: str) -> str:
         line = lines[i]
         stripped = line.strip()
 
-        # Box divider
+        # Box divider — collapse a divider-wrapped section title into a single
+        # header and DROP the dividers. Emitting the dividers as content makes
+        # ClickUp render stray separator lines around the title (the bug seen
+        # inside numbered sections). Handles both the canonical
+        # `divider / title / divider` and a `divider / title` with the closing
+        # divider missing.
         if DIVIDER_RE.match(stripped):
-            out_lines.append("---")
-            i += 1
-            # Next line may be a numbered section title between dividers
-            if i < n and not DIVIDER_RE.match(lines[i].strip()):
-                title_line = lines[i].strip()
-                section_match = re.match(r"^(\d+)\.\s+(.+)$", title_line)
-                if section_match and i + 1 < n and DIVIDER_RE.match(lines[i + 1].strip()):
-                    out_lines.append(f"## {section_match.group(2)}")
+            title_line = lines[i + 1].strip() if i + 1 < n else ""
+            is_title = (
+                bool(title_line)
+                and not DIVIDER_RE.match(title_line)
+                and not title_line.startswith(("•", "–", "-", "*"))
+            )
+            if is_title:
+                out_lines.append(f"## {title_line}")
+                i += 2
+                # consume the optional closing divider
+                if i < n and DIVIDER_RE.match(lines[i].strip()):
                     i += 1
-                    # skip closing divider on next iteration
-                    if i < n and DIVIDER_RE.match(lines[i].strip()):
-                        out_lines.append("---")
-                        i += 1
-                    continue
+                continue
+            # standalone divider with no title following → drop it
+            i += 1
             continue
 
         # Standalone warning → bold

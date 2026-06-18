@@ -20,6 +20,14 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 0
 fi
 
+ENV_FILE="${CLICKUP_RICH_COMMENTS_ENV:-$HOME/.clickup_rich_comments.env}"
+if [[ -z "${CLICKUP_API_TOKEN:-}" && -f "$ENV_FILE" ]]; then
+  set -a
+  # shellcheck source=/dev/null
+  source "$ENV_FILE"
+  set +a
+fi
+
 if [[ -z "${CLICKUP_API_TOKEN:-}" ]]; then
   echo "${LOG_PREFIX}: CLICKUP_API_TOKEN not set; skipping rich-text upgrade." >&2
   exit 0
@@ -28,7 +36,7 @@ fi
 input="$(cat)"
 
 tool_name="$(jq -r '.tool_name // empty' <<<"$input")"
-if [[ "$tool_name" != "clickup_create_task_comment" ]]; then
+if [[ "$tool_name" != "clickup_create_task_comment" && "$tool_name" != "clickup_create_comment" ]]; then
   exit 0
 fi
 
@@ -65,6 +73,13 @@ fi
 if [[ -z "$comment_text" ]]; then
   echo "${LOG_PREFIX}: empty comment_text; skipping." >&2
   exit 0
+fi
+
+if [[ -z "${SSL_CERT_FILE:-}" ]] && command -v python3 >/dev/null 2>&1; then
+  _certifi="$(python3 -c 'import certifi; print(certifi.where())' 2>/dev/null || true)"
+  if [[ -n "$_certifi" && -f "$_certifi" ]]; then
+    export SSL_CERT_FILE="$_certifi"
+  fi
 fi
 
 if ! python3 "$SCRIPT_DIR/clickup_rich_comment.py" "$comment_id" <<<"$comment_text"; then
