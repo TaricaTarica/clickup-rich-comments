@@ -201,7 +201,7 @@ fi
 if [[ "$setup_claude" -eq 1 ]]; then
   info "Configuring Claude Code hook..."
 
-  DEFAULT_MATCHER="mcp__.*__clickup_create_task_comment"
+  DEFAULT_MATCHER="mcp__.*__clickup_create(_task)?_comment"
   suggested="$(python3 "$REPO_ROOT/scripts/merge_claude_hooks.py" --suggest-matcher)"
   matcher="$DEFAULT_MATCHER"
 

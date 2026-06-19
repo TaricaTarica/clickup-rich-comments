@@ -57,7 +57,7 @@ cd clickup-rich-comments
 
 The installer checks prerequisites, guides you through `CLICKUP_API_TOKEN` setup, and configures hooks for Cursor and Claude Code automatically. Takes about two minutes.
 
-**Requirements:** `python3`, `jq` (for hook wrappers). No pip packages.
+**Requirements:** `python3` only (hooks parse the payload in Python — no `jq`, no pip packages).
 
 ## Install
 
@@ -85,7 +85,7 @@ Or use `/add-plugin` and search for `clickup-comment-style`.
 
 After install, restart Cursor or run **Developer: Reload Window**. Hook changes are not hot-reloaded; `SKILL.md` and rule updates may require a reload.
 
-**Requirements:** `python3`, `jq`, and `CLICKUP_API_TOKEN` in your environment (see [token setup](#step-by-step-get-your-clickup_api_token)). The plugin installs the mechanism only — it never embeds or ships credentials.
+**Requirements:** `python3` and `CLICKUP_API_TOKEN` (env var or `~/.clickup_rich_comments.env`) (see [token setup](#step-by-step-get-your-clickup_api_token)). The plugin installs the mechanism only — it never embeds or ships credentials.
 
 **What you get:** an `afterMCPExecution` hook that upgrades `clickup_create_task_comment` output to native rich text, plus the comment style guide skill and rule.
 
@@ -123,7 +123,7 @@ Then in a Claude Code session:
 
 After install, restart the session or run `/reload-plugins`. Hook changes are not hot-reloaded; `SKILL.md` updates are.
 
-**Requirements:** `python3`, `jq`, and `CLICKUP_API_TOKEN` in your environment (see [token setup](#step-by-step-get-your-clickup_api_token)). The plugin installs the mechanism only — it never embeds or ships credentials.
+**Requirements:** `python3` and `CLICKUP_API_TOKEN` (env var or `~/.clickup_rich_comments.env`) (see [token setup](#step-by-step-get-your-clickup_api_token)). The plugin installs the mechanism only — it never embeds or ships credentials.
 
 **What you get:** a `PostToolUse` hook that upgrades `clickup_create_task_comment` output to native rich text, plus the comment style guide skill.
 
@@ -163,7 +163,7 @@ Restart Cursor or save `hooks.json` to reload hooks.
 
 ### Claude Code (manual)
 
-`./install.sh` merges the hook into `~/.claude/settings.json` automatically (with confirmation). Matcher default: regex `mcp__.*__clickup_create_task_comment` — works across MCP server naming (e.g. `mcp__claude_ai_ClickUp__clickup_create_task_comment`) without manual configuration.
+`./install.sh` merges the hook into `~/.claude/settings.json` automatically (with confirmation). Matcher default: regex `mcp__.*__clickup_create(_task)?_comment` — works across MCP server naming (e.g. `mcp__claude_ai_ClickUp__clickup_create_comment`) without manual configuration.
 
 Manual merge (see [`config-examples/claude-settings.json`](config-examples/claude-settings.json)):
 
@@ -178,7 +178,7 @@ Or merge JSON by hand:
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "mcp__.*__clickup_create_task_comment",
+        "matcher": "mcp__.*__clickup_create(_task)?_comment",
         "hooks": [
           {
             "type": "command",
@@ -213,7 +213,7 @@ The MCP OAuth token is **not** accessible to local hooks. The upgrade uses a **P
 
 ## Why this exists
 
-The MCP only writes `comment_text` — a plain string with minimal inline rendering. Native formatting (headers, lists, code blocks) lives in the separate `comment` field as a Quill-delta ops array, which the MCP does not expose. This hook reads `comment_text` after the MCP call and rewrites the comment via the documented `PUT` endpoint. See [ClickUp comment formatting](https://developer.clickup.com/docs/comment-formatting).
+The MCP only writes `comment_text` — a plain string with minimal inline rendering. Native formatting (headers, lists, code blocks) lives in the separate `comment` field as a Quill-delta ops array, which the MCP does not expose. This hook reads `comment_text` after the MCP call and rewrites the comment via the documented `PUT` endpoint. See [ClickUp comment formatting](https://developer.clickup.com/docs/comment-formatting). Screenshots are rendered **inline** as `type:image` ops built from REST attachment metadata.
 
 ---
 
@@ -225,9 +225,9 @@ The MCP only writes `comment_text` — a plain string with minimal inline render
 |---|-------------------|---------------|
 | Hook event | `PostToolUse` | `afterMCPExecution` |
 | Config file | `plugin/hooks/hooks.json` or `~/.claude/settings.json` | `plugin-cursor/hooks/hooks.json` or `~/.cursor/hooks.json` |
-| Matcher | Regex in config: `mcp__.*__clickup_create_task_comment` | None — `cursor.sh` filters `tool_name` internally |
+| Matcher | Regex in config: `mcp__.*__clickup_create(_task)?_comment` | None — `cursor.sh` filters `tool_name` internally |
 | `tool_name` | `mcp__<server>__clickup_create_task_comment` | `clickup_create_task_comment` (no MCP prefix) |
-| `tool_input` | JSON object | JSON string — unwrap with `jq 'fromjson'` |
+| `tool_input` | JSON object | JSON string — both parsed in Python (`--hook`) |
 | Comment ID | `tool_response.comment_id` | `tool_output.comment_id` |
 | Async | Supported (`"async": true`) | Not documented (runs synchronously) |
 
@@ -240,7 +240,7 @@ What the hook does:
 1. Reads the MCP tool payload from stdin (tool name, comment text, comment ID).
 2. If the tool is `clickup_create_task_comment` and the call succeeded, calls `clickup_rich_comment.py`.
 3. The Python script sends one `PUT` request to `https://api.clickup.com/api/v2/comment/{id}` using `CLICKUP_API_TOKEN` from your environment.
-4. On any error (missing token, missing `jq`, API failure), the hook logs to stderr and **exits 0** — your agent session is never blocked.
+4. On any error (missing token, API failure), the hook logs to stderr and **exits 0** — your agent session is never blocked.
 
 The repo contains no credentials. Review [`hooks/cursor.sh`](hooks/cursor.sh), [`hooks/claude-code.sh`](hooks/claude-code.sh), and [`hooks/clickup_rich_comment.py`](hooks/clickup_rich_comment.py) before installing.
 
@@ -339,7 +339,7 @@ The style guide teaches a plain-text dialect (bullets `•`, dividers, backticks
 
 | Symptom | Fix |
 |---------|-----|
-| `jq not found` in hook logs | Install jq: `brew install jq` (macOS) or `apt install jq` (Linux) |
+| `python3 not found` in hook logs | Install Python 3 and ensure it is on `PATH` |
 | `CLICKUP_API_TOKEN is not set` | Run `export CLICKUP_API_TOKEN='pk_...'` or re-run `./install.sh` |
 | Token set but hook still skips | IDE hooks may not inherit your shell profile. Add export to `~/.zshrc` and restart the IDE |
 | Comment still plain after hook | Check Hooks output channel; verify `comment_id` in hook payload |
@@ -349,7 +349,7 @@ The style guide teaches a plain-text dialect (bullets `•`, dividers, backticks
 
 ## Discover the MCP tool name (optional)
 
-The default regex matcher `mcp__.*__clickup_create_task_comment` usually works without discovery. If you need an exact matcher:
+The default regex matcher `mcp__.*__clickup_create(_task)?_comment` usually works without discovery. If you need an exact matcher:
 
 1. `python3 scripts/merge_claude_hooks.py --suggest-matcher` — hints from local MCP config or debug log.
 2. Or temporarily point Cursor `afterMCPExecution` to `scripts/detect-mcp-tool-name.sh`, post a test comment, read `~/.cursor/clickup-mcp-debug.log`.

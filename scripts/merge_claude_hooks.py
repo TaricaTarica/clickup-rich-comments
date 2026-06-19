@@ -19,8 +19,10 @@ import re
 import sys
 from pathlib import Path
 
-DEFAULT_MATCHER = "mcp__.*__clickup_create_task_comment"
-TOOL_SUFFIX = "clickup_create_task_comment"
+# Regex fragment covering both the claude.ai connector (clickup_create_comment) and
+# legacy servers (clickup_create_task_comment).
+TOOL_SUFFIX = "clickup_create(_task)?_comment"
+DEFAULT_MATCHER = "mcp__.*__" + TOOL_SUFFIX
 
 
 def detect_clickup_matcher() -> str | None:

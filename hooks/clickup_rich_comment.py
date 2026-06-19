@@ -24,11 +24,14 @@ import argparse
 import json
 import os
 import re
+import ssl
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
+import uuid
 
-API_TIMEOUT_SEC = 10
+API_TIMEOUT_SEC = 30
 DIVIDER_RE = re.compile(r"^[\u2500\-─]{40,}\s*$")
 WARNING_LINES = frozenset({"IMPORTANTE", "OBSOLETO", "MUST", "WARNING", "NOTE"})
 URL_RE = re.compile(
@@ -36,16 +39,129 @@ URL_RE = re.compile(
     re.IGNORECASE,
 )
 LINK_MD_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+# Image markdown: ![alt](ref) — checked before links (the leading ! disambiguates).
+IMAGE_MD_RE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
+IMAGE_ONLY_RE = re.compile(r"^!\[[^\]]*\]\([^)]+\)$")
+# Markdown table separator row, e.g. |---|:--:|---|
+TABLE_SEP_RE = re.compile(r"^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$")
+DEFAULT_IMAGE_WIDTH = 300
+
+
+def _split_table_row(line: str) -> list[str]:
+    """Split a markdown table row into trimmed cells, dropping leading/trailing pipes."""
+    return [c.strip() for c in line.strip().strip("|").split("|")]
+
+
+def _ssl_context() -> ssl.SSLContext:
+    """Default context, falling back to certifi (python.org builds miss system roots)."""
+    try:
+        import certifi  # noqa: PLC0415
+
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:  # pragma: no cover - certifi optional
+        return ssl.create_default_context()
+
+
+_SSL_CTX = _ssl_context()
+
+
+def build_image_op(meta: dict, width: int = DEFAULT_IMAGE_WIDTH) -> dict:
+    """
+    Build a ClickUp `type:image` comment op from a REST attachment-upload response.
+
+    The upload response (POST /task/{id}/attachment) provides every field the inline
+    image op needs: id, name/title, extension, thumbnail_*, url, url_w_query, width,
+    height. Shape verified against a real ClickUp comment.
+    """
+    ext = (meta.get("extension") or "png").lstrip(".")
+    name = meta.get("name") or meta.get("title") or "image"
+    title = meta.get("title") or name
+    url = meta.get("url") or meta.get("url_w_host") or ""
+    thumb_s = meta.get("thumbnail_small") or url
+    thumb_m = meta.get("thumbnail_medium") or url
+    thumb_l = meta.get("thumbnail_large") or url
+
+    data_attachment = {
+        "id": meta["id"],
+        "version": str(meta.get("version", "0")),
+        "date": meta.get("date", 0),
+        "name": name,
+        "title": title,
+        "extension": ext,
+        "source": meta.get("source", 1),
+        "thumbnail_small": thumb_s,
+        "thumbnail_medium": thumb_m,
+        "thumbnail_large": thumb_l,
+        "url": url,
+        "url_w_query": meta.get("url_w_query", url),
+        "url_w_host": meta.get("url_w_host", url),
+    }
+    attributes = {
+        "width": str(width),
+        "data-id": meta["id"],
+        "data-attachment": json.dumps(data_attachment, ensure_ascii=False),
+    }
+    if meta.get("width"):
+        attributes["data-natural-width"] = str(meta["width"])
+    if meta.get("height"):
+        attributes["data-natural-height"] = str(meta["height"])
+
+    return {
+        "type": "image",
+        "text": urllib.parse.quote(name),
+        "image": {
+            "id": meta["id"],
+            "name": name,
+            "title": title,
+            "type": ext,
+            "extension": f"image/{ext}",
+            "thumbnail_large": thumb_l,
+            "thumbnail_medium": thumb_m,
+            "thumbnail_small": thumb_s,
+            "url": url,
+            "uploaded": True,
+        },
+        "attributes": attributes,
+    }
+
+
+def resolve_attachment(ref: str, attachments: dict | None) -> dict | None:
+    """Match an image ref (basename or url) against the uploaded-attachment metadata map."""
+    if not attachments:
+        return None
+    if ref in attachments:
+        return attachments[ref]
+    base = os.path.basename(ref)
+    if base in attachments:
+        return attachments[base]
+    # match by the metadata url
+    for meta in attachments.values():
+        if ref and ref == meta.get("url"):
+            return meta
+    return None
 
 
 class DeltaWriter:
     """
     Emits ClickUp comment ops. Block attributes (header, list, code-block, blockquote)
     ride on the trailing newline for that line; inline attributes ride on text spans.
+    Image refs are resolved against `attachments` (filename/url -> upload metadata).
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self, attachments: dict | None = None, width: int = DEFAULT_IMAGE_WIDTH
+    ) -> None:
         self.blocks: list[dict] = []
+        self.attachments = attachments or {}
+        self.image_width = width
+
+    def append_image(self, alt: str, ref: str) -> bool:
+        """Append an inline image op if the ref resolves to an uploaded attachment."""
+        meta = resolve_attachment(ref, self.attachments)
+        if meta is None:
+            return False
+        self.blocks.append(build_image_op(meta, self.image_width))
+        return True
 
     def append(self, text: str, attrs: dict | None = None) -> None:
         if not text:
@@ -93,6 +209,18 @@ class DeltaWriter:
                     pos = end + 2
                     continue
 
+            # Inline image ![alt](ref) — checked before links
+            image_match = IMAGE_MD_RE.match(text, pos)
+            if image_match:
+                alt, ref = image_match.group(1), image_match.group(2)
+                if self.append_image(alt, ref):
+                    pos = image_match.end()
+                    continue
+                # Unresolved ref: fall through to render as a plain link
+                self.parse_inline(alt or ref, {**attrs, "link": ref})
+                pos = image_match.end()
+                continue
+
             # Markdown link [text](url)
             link_match = LINK_MD_RE.match(text, pos)
             if link_match:
@@ -101,9 +229,15 @@ class DeltaWriter:
                 pos = link_match.end()
                 continue
 
+            # Lone '!' that did not start an image marker — emit literally
+            if text[pos] == "!":
+                self.append("!", attrs)
+                pos += 1
+                continue
+
             # Find next special char or URL
             next_special = len(text)
-            for marker in ("`", "**", "__", "["):
+            for marker in ("`", "**", "__", "[", "!"):
                 idx = text.find(marker, pos)
                 if idx != -1:
                     next_special = min(next_special, idx)
@@ -136,10 +270,23 @@ class DeltaWriter:
         self, content: str, list_type: str, indent: int
     ) -> None:
         self.parse_inline(content)
-        attrs: dict = {"list": list_type}
+        # ClickUp requires the nested form: {"list": {"list": "<type>"}}
+        attrs: dict = {"list": {"list": list_type}}
         if indent > 0:
             attrs["indent"] = indent
         self.append_paragraph_break(attrs)
+
+    def emit_table(self, header: list[str], rows: list[list[str]]) -> None:
+        """ClickUp comments have no table op — render as a bold header line + bullets."""
+        if header:
+            self.parse_inline(" · ".join(c for c in header if c.strip()), {"bold": True})
+            self.append_paragraph_break()
+        for row in rows:
+            cells = [c for c in row if c.strip()]
+            if not cells:
+                continue
+            self.parse_inline("  —  ".join(cells))
+            self.append_paragraph_break({"list": {"list": "bullet"}})
 
     def parse_plain_paragraph(self, line: str) -> None:
         self.parse_inline(line)
@@ -242,9 +389,11 @@ def preprocess_plain_text(text: str) -> str:
     return "\n".join(out_lines)
 
 
-def markdown_to_blocks(text: str) -> list[dict]:
+def markdown_to_blocks(
+    text: str, attachments: dict | None = None, width: int = DEFAULT_IMAGE_WIDTH
+) -> list[dict]:
     """Line-based markdown parser → ClickUp comment ops."""
-    writer = DeltaWriter()
+    writer = DeltaWriter(attachments=attachments, width=width)
     lines = text.splitlines()
     i = 0
     n = len(lines)
@@ -271,11 +420,29 @@ def markdown_to_blocks(text: str) -> list[dict]:
             i += 1
             continue
 
-        # Thematic break
+        # Standalone inline image: ![alt](ref) on its own line
+        if IMAGE_ONLY_RE.match(stripped):
+            m = IMAGE_MD_RE.match(stripped)
+            if m and writer.append_image(m.group(1), m.group(2)):
+                writer.append_paragraph_break()
+                i += 1
+                continue
+
+        # Thematic break — ClickUp comments have no divider op; drop it (headers separate
+        # sections). Emitting "---" as text renders literally.
         if stripped in ("---", "***", "___"):
-            writer.append("---")
-            writer.append_paragraph_break()
             i += 1
+            continue
+
+        # Markdown table: a row of cells followed by a |---|---| separator row.
+        if "|" in stripped and i + 1 < n and TABLE_SEP_RE.match(lines[i + 1].strip()):
+            header = _split_table_row(line)
+            i += 2  # consume header + separator
+            data_rows: list[list[str]] = []
+            while i < n and "|" in lines[i] and lines[i].strip():
+                data_rows.append(_split_table_row(lines[i]))
+                i += 1
+            writer.emit_table(header, data_rows)
             continue
 
         # Headings
@@ -325,6 +492,7 @@ def markdown_to_blocks(text: str) -> list[dict]:
                 or re.match(r"^(\s*)[-*+]\s+", next_line)
                 or re.match(r"^(\s*)(\d+)\.\s+", next_line)
                 or next_stripped in ("---", "***", "___")
+                or IMAGE_ONLY_RE.match(next_stripped)
             ):
                 break
             para_lines.append(next_line)
@@ -332,6 +500,59 @@ def markdown_to_blocks(text: str) -> list[dict]:
         writer.parse_plain_paragraph("\n".join(para_lines))
 
     return writer.blocks
+
+
+def _api_request(url: str, *, method: str, token: str, data: bytes | None = None,
+                 content_type: str | None = None) -> dict:
+    headers = {"Authorization": token}
+    if content_type:
+        headers["Content-Type"] = content_type
+    request = urllib.request.Request(url, data=data, method=method, headers=headers)
+    with urllib.request.urlopen(
+        request, timeout=API_TIMEOUT_SEC, context=_SSL_CTX
+    ) as response:
+        if response.status not in (200, 201):
+            raise urllib.error.HTTPError(
+                url, response.status, response.reason, response.headers, None
+            )
+        raw = response.read().decode("utf-8") or "{}"
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+
+
+def upload_attachment(task_id: str, file_path: str, token: str) -> dict:
+    """POST /task/{id}/attachment as multipart/form-data; return the attachment metadata."""
+    url = f"https://api.clickup.com/api/v2/task/{task_id}/attachment"
+    boundary = uuid.uuid4().hex
+    filename = os.path.basename(file_path)
+    with open(file_path, "rb") as fh:
+        content = fh.read()
+    pre = (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="attachment"; filename="{filename}"\r\n'
+        "Content-Type: application/octet-stream\r\n\r\n"
+    ).encode("utf-8")
+    post = f"\r\n--{boundary}--\r\n".encode("utf-8")
+    body = pre + content + post
+    return _api_request(
+        url,
+        method="POST",
+        token=token,
+        data=body,
+        content_type=f"multipart/form-data; boundary={boundary}",
+    )
+
+
+def create_comment(task_id: str, comment_text: str, token: str) -> str:
+    """POST /task/{id}/comment (plain text fallback); return the new comment id."""
+    url = f"https://api.clickup.com/api/v2/task/{task_id}/comment"
+    data = json.dumps({"comment_text": comment_text, "notify_all": False}).encode("utf-8")
+    result = _api_request(
+        url, method="POST", token=token, data=data, content_type="application/json"
+    )
+    return str(result.get("id") or "")
 
 
 def put_comment(comment_id: str, blocks: list[dict], token: str) -> None:
@@ -346,28 +567,122 @@ def put_comment(comment_id: str, blocks: list[dict], token: str) -> None:
             "Content-Type": "application/json",
         },
     )
-    with urllib.request.urlopen(request, timeout=API_TIMEOUT_SEC) as response:
+    with urllib.request.urlopen(
+        request, timeout=API_TIMEOUT_SEC, context=_SSL_CTX
+    ) as response:
         if response.status not in (200, 201):
             raise urllib.error.HTTPError(
                 url, response.status, response.reason, response.headers, None
             )
 
 
+def _load_attachments_map(path: str | None) -> dict:
+    if not path:
+        return {}
+    with open(path, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def _as_obj(value) -> dict:
+    """Accept a dict or a JSON-encoded string; return a dict (empty on failure)."""
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except (json.JSONDecodeError, ValueError):
+            return {}
+    return {}
+
+
+def extract_from_hook(payload_text: str) -> tuple[str, str]:
+    """
+    Extract (comment_id, comment_text) from a hook payload, covering both editors:
+      Claude Code: tool_input (object) + tool_response (object) with id/comment_id
+      Cursor:      tool_input (JSON string) + tool_output (JSON string) with comment_id
+    """
+    try:
+        payload = json.loads(payload_text)
+    except (json.JSONDecodeError, ValueError):
+        return "", ""
+    if not isinstance(payload, dict):
+        return "", ""
+
+    tool_input = _as_obj(payload.get("tool_input"))
+    comment_text = tool_input.get("comment_text") or ""
+
+    response = _as_obj(payload.get("tool_response") or payload.get("tool_output"))
+    comment_id = str(response.get("comment_id") or response.get("id") or "")
+
+    return comment_id, comment_text
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Upgrade ClickUp comment_text to native rich-text ops."
+        description="Upgrade ClickUp comments to native rich-text ops (with inline images)."
     )
-    parser.add_argument("comment_id", help="ClickUp comment ID from MCP tool response")
+    parser.add_argument(
+        "comment_id",
+        nargs="?",
+        default=None,
+        help="Existing comment ID to upgrade (hook mode). Omit when using --task.",
+    )
     parser.add_argument(
         "comment_text",
         nargs="?",
         default=None,
         help="Plain comment text (omit to read from stdin)",
     )
+    parser.add_argument(
+        "--task",
+        default=None,
+        help="Task ID: create the comment, then upgrade it (feature-brief post mode).",
+    )
+    parser.add_argument(
+        "--attach",
+        nargs="*",
+        default=[],
+        help="Image files to upload and render INLINE (matched by basename in ![](ref)).",
+    )
+    parser.add_argument(
+        "--attachments",
+        default=None,
+        help="JSON file mapping filename/url -> upload metadata (for inline images).",
+    )
+    parser.add_argument(
+        "--width", type=int, default=DEFAULT_IMAGE_WIDTH, help="Inline image width (px)."
+    )
+    parser.add_argument(
+        "--print-ops",
+        action="store_true",
+        help="Print the resulting ops JSON instead of writing to ClickUp (dry run).",
+    )
+    parser.add_argument(
+        "--hook",
+        action="store_true",
+        help="Read a PostToolUse/afterMCPExecution payload from stdin (Claude Code & Cursor).",
+    )
     args = parser.parse_args()
 
+    # Hook mode: derive comment_id + comment_text from the full hook payload on stdin.
+    hook_text: str | None = None
+    if args.hook:
+        comment_id, hook_text = extract_from_hook(sys.stdin.read())
+        if not comment_id or not hook_text.strip():
+            print(
+                "clickup_rich_comment: hook payload missing comment_id/comment_text; skipping.",
+                file=sys.stderr,
+            )
+            return 0
+        args.comment_id = comment_id
+        args.comment_text = hook_text
+
+    if not args.comment_id and not args.task and not args.print_ops:
+        parser.error("provide a comment_id (hook mode) or --task (post mode)")
+
     token = os.environ.get("CLICKUP_API_TOKEN", "").strip()
-    if not token:
+    if not token and not args.print_ops:
         print(
             "clickup_rich_comment: CLICKUP_API_TOKEN is not set. "
             "Export a Personal API Token (pk_...) from ClickUp Settings → Apps.",
@@ -384,15 +699,36 @@ def main() -> int:
         print("clickup_rich_comment: empty comment_text, skipping.", file=sys.stderr)
         return 0
 
+    # Build the attachments metadata map: from --attachments file and/or by uploading --attach.
+    attachments = _load_attachments_map(args.attachments)
+    try:
+        for file_path in args.attach:
+            meta = upload_attachment(args.task, file_path, token)
+            attachments[os.path.basename(file_path)] = meta
+    except (urllib.error.HTTPError, urllib.error.URLError, OSError) as exc:
+        print(f"clickup_rich_comment: attachment upload failed: {exc}", file=sys.stderr)
+        return 1
+
     preprocessed = preprocess_plain_text(raw_text)
-    blocks = markdown_to_blocks(preprocessed)
+    blocks = markdown_to_blocks(preprocessed, attachments=attachments, width=args.width)
 
     if not blocks:
         print("clickup_rich_comment: no blocks produced, skipping.", file=sys.stderr)
         return 0
 
+    if args.print_ops:
+        print(json.dumps(blocks, indent=2, ensure_ascii=False))
+        return 0
+
+    comment_id = args.comment_id
     try:
-        put_comment(args.comment_id, blocks, token)
+        if not comment_id:
+            # Post mode: create a plain comment first, then upgrade it.
+            comment_id = create_comment(args.task, raw_text, token)
+            if not comment_id:
+                print("clickup_rich_comment: failed to create comment.", file=sys.stderr)
+                return 1
+        put_comment(comment_id, blocks, token)
     except urllib.error.HTTPError as exc:
         print(
             f"clickup_rich_comment: API error {exc.code}: {exc.reason}",
@@ -402,6 +738,12 @@ def main() -> int:
     except urllib.error.URLError as exc:
         print(f"clickup_rich_comment: network error: {exc.reason}", file=sys.stderr)
         return 1
+
+    if args.task:
+        print(json.dumps({
+            "comment_id": comment_id,
+            "attachments": {k: v.get("url") for k, v in attachments.items()},
+        }, ensure_ascii=False))
 
     return 0
 

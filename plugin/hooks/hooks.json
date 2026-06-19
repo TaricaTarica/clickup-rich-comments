@@ -2,7 +2,7 @@
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "mcp__.*__clickup_create_task_comment",
+        "matcher": "mcp__.*__clickup_create(_task)?_comment",
         "hooks": [
           {
             "type": "command",
